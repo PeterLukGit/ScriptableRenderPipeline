@@ -1,4 +1,5 @@
 using System;
+using System.Linq;
 using UnityEngine;
 using UnityEngine.Experimental.Rendering;
 using UnityEngine.Experimental.Rendering.HDPipeline;
@@ -54,23 +55,44 @@ namespace UnityEditor.Experimental.Rendering.HDPipeline
         readonly static ExpandedState<Expandable, Light> k_ExpandedState = new ExpandedState<Expandable, Light>(Expandable.General | Expandable.Shape | Expandable.Emission, "HDRP");
 
         public static readonly CED.IDrawer Inspector;
+        
+        static bool GetAdvanced(Expandable mask, SerializedHDLight serialized, Editor owner)
+        {
+            return (serialized.serializedLightData.showAdditionalSettings.intValue & (int)mask) != 0;
+        }
+
+        static void SwitchAdvanced(Expandable mask, SerializedHDLight serialized, Editor owner)
+        {
+            if ((serialized.serializedLightData.showAdditionalSettings.intValue & (int)mask) != 0)
+            {
+                serialized.serializedLightData.showAdditionalSettings.intValue &= ~(int)mask;
+            }
+            else
+            {
+                serialized.serializedLightData.showAdditionalSettings.intValue |= (int)mask;
+            }
+        }
 
         static HDLightUI()
         {
             Inspector = CED.Group(
                 CED.AdvancedFoldoutGroup(s_Styles.generalHeader, Expandable.General, k_ExpandedState,
-                    (serialized, owner) => serialized.serializedLightData.showAdditionalSettings.boolValue,
-                    (serialized, owner) => serialized.serializedLightData.showAdditionalSettings.boolValue ^= true,
+                    (serialized, owner) => GetAdvanced(Expandable.General, serialized, owner),
+                    (serialized, owner) => SwitchAdvanced(Expandable.General, serialized, owner),
                     DrawGeneralContent,
                     DrawGeneralAdvancedContent
                     ),
-                CED.FoldoutGroup(s_Styles.shapeHeader, Expandable.Shape, k_ExpandedState,
+                CED.AdvancedFoldoutGroup(s_Styles.shapeHeader, Expandable.Shape, k_ExpandedState,
+                    (serialized, owner) => GetAdvanced(Expandable.Shape, serialized, owner),
+                    (serialized, owner) => SwitchAdvanced(Expandable.Shape, serialized, owner),
                     DrawShapeContent,
-                    CED.Conditional((serialized, owner) => serialized.serializedLightData.showAdditionalSettings.boolValue && k_ExpandedState[Expandable.General], DrawShapeAdvancedContent).Draw
+                    DrawShapeAdvancedContent
                     ),
-                CED.FoldoutGroup(s_Styles.emissionHeader, Expandable.Emission, k_ExpandedState,
+                CED.AdvancedFoldoutGroup(s_Styles.emissionHeader, Expandable.Emission, k_ExpandedState,
+                    (serialized, owner) => GetAdvanced(Expandable.Emission, serialized, owner),
+                    (serialized, owner) => SwitchAdvanced(Expandable.Emission, serialized, owner),
                     DrawEmissionContent,
-                    CED.Conditional((serialized, owner) => serialized.serializedLightData.showAdditionalSettings.boolValue && k_ExpandedState[Expandable.General], DrawEmissionAdvancedContent).Draw
+                    DrawEmissionAdvancedContent
                     ),
                 CED.FoldoutGroup(s_Styles.shadowHeader, Expandable.Shadows, k_ExpandedState, DrawShadows)
             );
@@ -385,31 +407,33 @@ namespace UnityEditor.Experimental.Rendering.HDPipeline
                 }
             }
 
-            if (serialized.serializedLightData.showAdditionalSettings.boolValue)
+            if (EditorGUI.EndChangeCheck())
             {
-                EditorGUILayout.Space();
-                EditorGUILayout.LabelField("Additional Settings", EditorStyles.boldLabel);
-                EditorGUI.indentLevel++;
+                serialized.needUpdateAreaLightEmissiveMeshComponents = true;
+                ((Light)owner.target).SetLightDirty(); // Should be apply only to parameter that's affect GI, but make the code cleaner
+            }
+        }
 
-                EditorGUILayout.PropertyField(serialized.serializedLightData.affectDiffuse, s_Styles.affectDiffuse);
-                EditorGUILayout.PropertyField(serialized.serializedLightData.affectSpecular, s_Styles.affectSpecular);
-                if (serialized.editorLightShape != LightShape.Directional)
-                    EditorGUILayout.PropertyField(serialized.serializedLightData.fadeDistance, s_Styles.fadeDistance);
-                EditorGUILayout.PropertyField(serialized.serializedLightData.lightDimmer, s_Styles.lightDimmer);
-                EditorGUILayout.PropertyField(serialized.serializedLightData.volumetricDimmer, s_Styles.volumetricDimmer);
-                if (serialized.editorLightShape != LightShape.Directional)
-                    EditorGUILayout.PropertyField(serialized.serializedLightData.applyRangeAttenuation, s_Styles.applyRangeAttenuation);
+        static void DrawEmissionAdvancedContent(SerializedHDLight serialized, Editor owner)
+        {
+            EditorGUI.BeginChangeCheck(); // For GI we need to detect any change on additional data and call SetLightDirty
 
-                // Emissive mesh for area light only
-                if (HDAdditionalLightData.IsAreaLight(serialized.serializedLightData.lightTypeExtent))
-                {
-                    EditorGUI.BeginChangeCheck();
-                    EditorGUILayout.PropertyField(serialized.serializedLightData.displayAreaLightEmissiveMesh, s_Styles.displayAreaLightEmissiveMesh);
-                    if (EditorGUI.EndChangeCheck())
-                        serialized.needUpdateAreaLightEmissiveMeshComponents = true;
-                }
+            EditorGUILayout.PropertyField(serialized.serializedLightData.affectDiffuse, s_Styles.affectDiffuse);
+            EditorGUILayout.PropertyField(serialized.serializedLightData.affectSpecular, s_Styles.affectSpecular);
+            if (serialized.editorLightShape != LightShape.Directional)
+                EditorGUILayout.PropertyField(serialized.serializedLightData.fadeDistance, s_Styles.fadeDistance);
+            EditorGUILayout.PropertyField(serialized.serializedLightData.lightDimmer, s_Styles.lightDimmer);
+            EditorGUILayout.PropertyField(serialized.serializedLightData.volumetricDimmer, s_Styles.volumetricDimmer);
+            if (serialized.editorLightShape != LightShape.Directional)
+                EditorGUILayout.PropertyField(serialized.serializedLightData.applyRangeAttenuation, s_Styles.applyRangeAttenuation);
 
-                EditorGUI.indentLevel--;
+            // Emissive mesh for area light only
+            if (HDAdditionalLightData.IsAreaLight(serialized.serializedLightData.lightTypeExtent))
+            {
+                EditorGUI.BeginChangeCheck();
+                EditorGUILayout.PropertyField(serialized.serializedLightData.displayAreaLightEmissiveMesh, s_Styles.displayAreaLightEmissiveMesh);
+                if (EditorGUI.EndChangeCheck())
+                    serialized.needUpdateAreaLightEmissiveMeshComponents = true;
             }
 
             if (EditorGUI.EndChangeCheck())
@@ -418,10 +442,6 @@ namespace UnityEditor.Experimental.Rendering.HDPipeline
                 serialized.serializedLightData.fadeDistance.floatValue = Mathf.Max(serialized.serializedLightData.fadeDistance.floatValue, 0.01f);
                 ((Light)owner.target).SetLightDirty(); // Should be apply only to parameter that's affect GI, but make the code cleaner
             }
-        }
-
-        static void DrawEmissionAdvancedContent(SerializedHDLight serialized, Editor owner)
-        {
         }
 
         static void DrawBakedShadowParameters(SerializedHDLight serialized, Editor owner)

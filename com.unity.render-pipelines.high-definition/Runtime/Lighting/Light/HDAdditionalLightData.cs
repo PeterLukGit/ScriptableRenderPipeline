@@ -157,7 +157,7 @@ namespace UnityEngine.Experimental.Rendering.HDPipeline
         // This is specific for the LightEditor GUI and not use at runtime
         public bool useOldInspector = false;
         public bool featuresFoldout = true;
-        public bool showAdditionalSettings = false;
+        public byte showAdditionalSettings = 0;
         public float displayLightIntensity;
 
         // When true, a mesh will be display to represent the area light (Can only be change in editor, component is added in Editor)
